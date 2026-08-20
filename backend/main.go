@@ -3,13 +3,23 @@ package main
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
+	"strings"
+	"time"
 
 	router "github.com/MicrosoftStudentChapter/Link-Generator/pkg/router"
 
 	"github.com/gorilla/mux"
 	"github.com/redis/go-redis/v9"
+)
+
+var allowedOrigins map[string]bool
+
+const (
+	rateLimitMax    = 10
+	rateLimitWindow = time.Minute
 )
 
 func main() {
@@ -41,6 +51,15 @@ func main() {
 	}
 	fmt.Println("Redis [PING]: ", res)
 
+	allowedOrigins = map[string]bool{}
+	origins := os.Getenv("ALLOWED_ORIGINS")
+	if origins == "" {
+		origins = "http://localhost:5173"
+	}
+	for _, o := range strings.Split(origins, ",") {
+		allowedOrigins[strings.TrimSpace(o)] = true
+	}
+
 	r := mux.NewRouter()
 
 	r.HandleFunc("/links/all", router.GetAllLinks).Methods(http.MethodOptions, http.MethodGet)
@@ -48,7 +67,7 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("Service is Alive"))
 	}).Methods(http.MethodOptions, http.MethodGet)
-	r.HandleFunc("/add-link", router.AddLink).Methods(http.MethodOptions, http.MethodPost)
+	r.Handle("/add-link", RateLimitMiddleware(http.HandlerFunc(router.AddLink))).Methods(http.MethodOptions, http.MethodPost)
 	r.HandleFunc("/{link}", router.HandleRouting).Methods(http.MethodOptions, http.MethodGet)
 
 	r.Use(LoggingMiddleware)
@@ -68,7 +87,9 @@ func main() {
 
 func HandlePreflight(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
+		if origin := r.Header.Get("Origin"); allowedOrigins[origin] {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+		}
 		w.Header().Set("Access-Control-Allow-Headers", "*")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusOK)
@@ -83,4 +104,38 @@ func LoggingMiddleware(next http.Handler) http.Handler {
 		fmt.Println("Logger:  ", r.Method, r.URL)
 		next.ServeHTTP(w, r)
 	})
+}
+
+// RateLimitMiddleware caps requests per client IP using a Redis counter,
+// since /add-link is an unauthenticated public write endpoint.
+func RateLimitMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		key := "ratelimit:add-link:" + clientIP(r)
+		count, err := router.Mem.Incr(ctx, key).Result()
+		if err != nil {
+			next.ServeHTTP(w, r)
+			return
+		}
+		if count == 1 {
+			router.Mem.Expire(ctx, key, rateLimitWindow)
+		}
+		if count > rateLimitMax {
+			w.WriteHeader(http.StatusTooManyRequests)
+			w.Write([]byte("Too many requests, please try again later"))
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func clientIP(r *http.Request) string {
+	if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
+		return strings.TrimSpace(strings.Split(fwd, ",")[0])
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
 }
