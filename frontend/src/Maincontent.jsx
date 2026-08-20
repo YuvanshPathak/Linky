@@ -49,7 +49,7 @@ const MainContentSection = () => {
 
     const shortenedUrl = generateShortenedUrl(alias);
 
-    const link = "https://l.mlsctiet.com"
+    const link = import.meta.env.VITE_API_URL || "http://localhost:4000"
 
     // api call to add link in the backend
     const raw = JSON.stringify({
@@ -63,8 +63,6 @@ const MainContentSection = () => {
       url: `${link}/add-link`,
       headers: {
         "Content-Type": "application/json",
-        "Access-Control-Allow-Origin":
-          "https://generate.mlsctiet.com, http://localhost:5173",
       },
       data: raw,
     };

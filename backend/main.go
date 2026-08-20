@@ -13,16 +13,27 @@ import (
 )
 
 func main() {
-	redisAddr := os.Getenv("REDIS_ADDR")
-	if redisAddr == "" {
-		redisAddr = ":6379"
+	var opts *redis.Options
+	if redisURL := os.Getenv("REDIS_URL"); redisURL != "" {
+		fmt.Println("Connecting Redis via REDIS_URL")
+		var err error
+		opts, err = redis.ParseURL(redisURL)
+		if err != nil {
+			panic(err)
+		}
+	} else {
+		redisAddr := os.Getenv("REDIS_ADDR")
+		if redisAddr == "" {
+			redisAddr = ":6379"
+		}
+		fmt.Println("Connecting Redis to: ", redisAddr)
+		opts = &redis.Options{
+			Addr:     redisAddr,
+			Password: os.Getenv("REDIS_PASSWORD"),
+			DB:       0,
+		}
 	}
-	fmt.Println("Connecting Redis to: ", redisAddr)
-	conn := redis.NewClient(&redis.Options{
-		Addr:     redisAddr,
-		Password: "",
-		DB:       0,
-	})
+	conn := redis.NewClient(opts)
 	router.Mem = conn
 	res, err := conn.Ping(context.Background()).Result()
 	if err != nil {
@@ -44,9 +55,13 @@ func main() {
 	r.Use(mux.CORSMethodMiddleware(r))
 	r.Use(HandlePreflight)
 
-	fmt.Println("Server started at port 4000")
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "4000"
+	}
+	fmt.Println("Server started at port", port)
 
-	http.ListenAndServe(":4000", r)
+	http.ListenAndServe(":"+port, r)
 }
 
 // Middlewares
