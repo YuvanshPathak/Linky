@@ -1,88 +1,131 @@
 # Linky
 
-Linky is an open-source project designed to provide redirect solutions with custom-named links using any pre-existing domain name. This solution is perfect for creating short, memorable links that can redirect users to any URL, simplifying the sharing and management of links.
+Linky is a link shortener that lets you create custom-named redirects using any domain you own. Instead of random short codes, you pick the alias yourself — `https://yourdomain.com/my-form` can redirect to a Google Form, a landing page, anything.
 
-## Example
-
-Create a custom-named link: `https://abcd.xyz/my-form => Redirects to a Google Form`
+**Live demo:** [linky-shortner.vercel.app](https://linky-shortner.vercel.app)
 
 ## Table of Contents
 
 - [Features](#features)
+- [Architecture](#architecture)
 - [Getting Started](#getting-started)
   - [Prerequisites](#prerequisites)
-  - [Installation](#installation)
+  - [Backend](#backend)
+  - [Frontend](#frontend)
+- [Environment Variables](#environment-variables)
 - [Deployment](#deployment)
 - [Contribution](#contribution)
 
 ## Features
 
-- [x]  **Custom Named Links**: Easily create short, custom-named links for better readability and ease of sharing.
-- [ ]  **Enhanced Error Handling**: Comprehensive error handling with clear and consistent error messages.
-- [ ]  **No Expiry Option**: Option to generate links that never expire, ensuring permanent access.
-- [ ]  **QR Code Generation**: Automatic generation of QR codes for each shortened links.
-- [ ]  **User-Friendly Interface**: Simple and intuitive web interface for managing redirects.
-- [ ]  **Secure Redirects**: Ensure safe redirects with validation and monitoring.
+- [x] **Custom Named Links** — pick your own alias instead of a random short code.
+- [x] **Link Expiry** — set an expiry date, or mark a link as permanent.
+- [x] **Rate Limiting** — `/add-link` is capped per IP to stop abuse of the public write endpoint.
+- [x] **CORS Allowlist** — API only accepts browser requests from configured origins.
+- [ ] **QR Code Generation** — automatic QR code for each shortened link.
+- [ ] **Analytics** — click tracking per link.
+
+## Architecture
+
+```
+┌─────────────┐        ┌──────────────┐        ┌───────────┐
+│   Frontend   │───────▶│    Backend    │───────▶│   Redis   │
+│  React/Vite  │  HTTP  │  Go (gorilla  │        │  (links + │
+│              │        │     /mux)     │        │  expiry)  │
+└─────────────┘        └──────────────┘        └───────────┘
+```
+
+- **Backend** (`/backend`) — Go service that stores each short link as a Redis hash, with expiry set via `EXPIRE` when the user provides a date. Exposes `/add-link`, `/{link}` (redirect), `/links/all`, and `/health`.
+- **Frontend** (`/frontend`) — React + Vite + MUI single-page app for creating links and copying the result.
 
 ## Getting Started
-Follow these steps to set up the project on your local machine and start creating custom-named redirects.
-
 
 ### Prerequisites
 
-Before you begin, ensure you have the following:
+| Backend                          | Frontend                          |
+|-----------------------------------|------------------------------------|
+| Go 1.20+                          | Node.js + npm                      |
+| Redis (local install or Docker)  | Familiarity with React/Vite        |
+| Docker + Docker Compose (recommended) | |
 
-| Frontend Development                           | Backend Development                            |
-|------------------------------------------------|------------------------------------------------|
-| 1. **JavaScript** and **ReactJS**              | 1. **Golang** for creating backend services    |
-| 2. **CSS** and **MUI** for styling             | 2. **Redis** as the database                   |
-| 3. **API Integration**                         | 3. **Optimization Techniques** for performance |
-| 4. Familiarity with tools like **Git**, **GitHub**, **IDE**, **Figma**, **Illustrator** | 4. Familiarity with tools like **Git**, **GitHub**, **IDE** |
+### Backend
 
-### Installation
+The easiest way to run the backend + Redis together locally is Docker Compose:
 
-1. **Clone the Repository**
-   ```bash
-   git clone https://github.com/yourusername/linky.git
-   cd linky
-2. **Running the Server**
-- Navigate to the backend directory and run the server and download all the necessary dependencies :
-    ```bash
-    cd backend
-    go run main.go
-- You'll need to install Redis manually or use Docker for installation. Ensure your server is running before starting the frontend.
-3. **Running the Frontend**
-- Navigate to the frontend directory, install dependencies, and start the development at your local server:
-  ```bash
-  cd frontend
-  npm install
-  npm run dev
+```bash
+cd backend
+docker compose up -d --build
+```
 
+This builds the Go service and starts a Redis container alongside it, both on the default Compose network. The API is available at `http://localhost:4000` — check `http://localhost:4000/health`.
 
-# Deployment
+To run it without Docker, start Redis yourself and then:
 
-To deploy Linky in a production environment, use Docker:
-1. **Run Docker Compose**
-- Execute the following command in the root directory of the project (before starting the frontend, ensure Docker is running to manage dependencies effectively): 
-  ```bash
-  cd backend
-  docker compose up -d
-2. **Deploy Frontend**
-- You can deploy the frontend anywhere and configure it to point to the backend URL for link management.
-- **Note** - Always run the docker first instead of frontend
+```bash
+cd backend
+go run main.go
+```
 
-# Contribution
+See [Environment Variables](#environment-variables) below for how it connects to Redis and what CORS origins it accepts.
 
-Contributions are always welcome!To contribute -
+### Frontend
+
+```bash
+cd frontend
+cp .env.example .env   # then edit VITE_API_URL if needed
+npm install
+npm run dev
+```
+
+This starts the Vite dev server (default `http://localhost:5173`) pointed at the backend URL set in `.env`.
+
+## Environment Variables
+
+**Backend** (`backend/`)
+
+| Variable          | Default              | Purpose                                                                 |
+|--------------------|----------------------|--------------------------------------------------------------------------|
+| `REDIS_URL`        | —                     | Full Redis connection URL (e.g. from a managed Redis provider). Takes priority over `REDIS_ADDR` if set. |
+| `REDIS_ADDR`       | `:6379`               | Host:port for Redis, used when `REDIS_URL` isn't set.                   |
+| `REDIS_PASSWORD`   | empty                 | Redis auth password, used with `REDIS_ADDR`.                            |
+| `ALLOWED_ORIGINS`  | `http://localhost:5173` | Comma-separated list of origins allowed to call the API from a browser. |
+| `PORT`             | `4000`                | Port the server listens on (platforms like Railway inject this).        |
+
+**Frontend** (`frontend/`)
+
+| Variable        | Default                 | Purpose                                  |
+|------------------|--------------------------|--------------------------------------------|
+| `VITE_API_URL`   | `http://localhost:4000` | Base URL of the backend API. Baked in at build time. |
+
+## Deployment
+
+Linky's own instance runs on:
+
+- **Backend + Redis** — [Railway](https://railway.app), deployed straight from the `backend/` Dockerfile with a Redis plugin service in the same project. `REDIS_URL` and `ALLOWED_ORIGINS` are set as service variables.
+- **Frontend** — [Vercel](https://vercel.com), deployed from `frontend/` with `VITE_API_URL` set to the Railway backend's public domain.
+
+Both are wired to auto-deploy on push to `main`. A local production-style test is also available via `backend/docker-compose.yaml` for the backend, and `npm run build && npm run preview` for the frontend.
+
+If you're deploying your own instance, remember:
+- `ALLOWED_ORIGINS` on the backend must include your deployed frontend's URL, or the browser will block requests with a CORS error.
+- `VITE_API_URL` on the frontend must point at your backend's public URL — since Vite bakes it in at build time, changing it requires a rebuild, not just a restart.
+
+## Contribution
+
+Contributions are always welcome! To contribute:
+
 - **Fork** the repository on GitHub.
-- **Create** a new branch from the `main` branch for your feature or bug fix:
-   ```bash
-   git checkout -b your-branch-name/your-name
-- Discuss your ideas or the issue you plan to address. You can find open issues in the [Issues](https://github.com/MicrosoftStudentChapter/Linky/issues) section. Comment on the issue to get it assigned to you.
-- Implement your changes or fixes then commit your changes.
+- **Create** a new branch from `main` for your feature or bug fix:
+  ```bash
+  git checkout -b your-branch-name/your-name
+  ```
+- Check the [Issues](https://github.com/YuvanshPathak/Linky/issues) section for open issues, and comment to get one assigned to you.
+- Implement your changes, then commit:
   ```bash
   git commit -m "feature XYZ implemented"
-- **Push** your changes to your fork.
-    ```bash
-    git push origin feature/your-feature-name
-- Open a **pull request** with a detailed description of your changes.
+  ```
+- **Push** your changes to your fork:
+  ```bash
+  git push origin your-branch-name/your-name
+  ```
+- Open a **pull request** with a description of your changes.
