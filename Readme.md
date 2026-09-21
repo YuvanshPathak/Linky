@@ -89,7 +89,7 @@ This starts the Vite dev server (default `http://localhost:5173`) pointed at the
 | `REDIS_ADDR`       | `:6379`               | Host:port for Redis, used when `REDIS_URL` isn't set.                   |
 | `REDIS_PASSWORD`   | empty                 | Redis auth password, used with `REDIS_ADDR`.                            |
 | `ALLOWED_ORIGINS`  | `http://localhost:5173` | Comma-separated list of origins allowed to call the API from a browser. |
-| `PORT`             | `4000`                | Port the server listens on (platforms like Railway inject this).        |
+| `PORT`             | `4000`                | Port the server listens on (platforms like Render inject this).         |
 
 **Frontend** (`frontend/`)
 
@@ -101,10 +101,13 @@ This starts the Vite dev server (default `http://localhost:5173`) pointed at the
 
 Linky's own instance runs on:
 
-- **Backend + Redis** — [Railway](https://railway.app), deployed straight from the `backend/` Dockerfile with a Redis plugin service in the same project. `REDIS_URL` and `ALLOWED_ORIGINS` are set as service variables.
-- **Frontend** — [Vercel](https://vercel.com), deployed from `frontend/` with `VITE_API_URL` set to the Railway backend's public domain.
+- **Backend + Redis** — [Render](https://render.com), deployed straight from the `backend/` Dockerfile as a free Web Service, with a free Render Key Value (Redis-compatible) instance in the same region so they can talk over Render's private network. `REDIS_URL` (the Key Value instance's internal connection string) and `ALLOWED_ORIGINS` are set as service environment variables, and Health Check Path is set to `/health`.
+- **Frontend** — [Vercel](https://vercel.com), deployed from `frontend/` with `VITE_API_URL` set to the Render backend's public domain.
+- **Keep-alive** — Render's free web services sleep after 15 minutes with no inbound traffic (30-60s cold start to wake back up). A free [UptimeRobot](https://uptimerobot.com) monitor pings `/health` every 5 minutes to prevent that.
 
-Both are wired to auto-deploy on push to `main`. A local production-style test is also available via `backend/docker-compose.yaml` for the backend, and `npm run build && npm run preview` for the frontend.
+Both Render and Vercel auto-deploy on push to `main`. A local production-style test is also available via `backend/docker-compose.yaml` for the backend, and `npm run build && npm run preview` for the frontend.
+
+**Note on the free Redis instance**: Render's free Key Value plan doesn't support persistence — a restart or maintenance event on their side can wipe stored links. Fine for a demo, but a real deployment would want a paid instance or an external persistent Redis (e.g. Upstash) instead.
 
 If you're deploying your own instance, remember:
 - `ALLOWED_ORIGINS` on the backend must include your deployed frontend's URL, or the browser will block requests with a CORS error.

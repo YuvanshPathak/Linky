@@ -2,3 +2,6 @@ coverage/
 *.exe
 
 projectDesc.md
+.claude
+docker-compose.stress.yml
+load-test/
