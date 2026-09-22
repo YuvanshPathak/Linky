@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -16,11 +17,9 @@ import (
 )
 
 var allowedOrigins map[string]bool
+var rateLimitMax int64 = 10
 
-const (
-	rateLimitMax    = 10
-	rateLimitWindow = time.Minute
-)
+const rateLimitWindow = time.Minute
 
 func main() {
 	var opts *redis.Options
@@ -51,6 +50,12 @@ func main() {
 	}
 	fmt.Println("Redis [PING]: ", res)
 
+	if v := os.Getenv("RATE_LIMIT_MAX"); v != "" {
+		if n, err := strconv.ParseInt(v, 10, 64); err == nil {
+			rateLimitMax = n
+		}
+	}
+
 	allowedOrigins = map[string]bool{}
 	origins := os.Getenv("ALLOWED_ORIGINS")
 	if origins == "" {
@@ -66,7 +71,7 @@ func main() {
 	r.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("Service is Alive"))
-	}).Methods(http.MethodOptions, http.MethodGet)
+	}).Methods(http.MethodOptions, http.MethodGet, http.MethodHead)
 	r.Handle("/add-link", RateLimitMiddleware(http.HandlerFunc(router.AddLink))).Methods(http.MethodOptions, http.MethodPost)
 	r.HandleFunc("/{link}", router.HandleRouting).Methods(http.MethodOptions, http.MethodGet)
 
