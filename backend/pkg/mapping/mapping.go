@@ -71,14 +71,24 @@ func GetURL(shortURL string, ctx context.Context, conn *redis.Client) string {
 }
 
 func GetAllLinks(ctx context.Context, conn *redis.Client) []Link {
-	keys := conn.Keys(ctx, "*").Val()
 	var links []Link
-	for _, key := range keys {
-		link := conn.HGetAll(ctx, key).Val()
-		links = append(links, Link{
-			Link:     link["Link"],
-			ShortURL: link["ShortURL"],
-		})
+	var cursor uint64
+	for {
+		keys, next, err := conn.Scan(ctx, cursor, "*", 100).Result()
+		if err != nil {
+			break
+		}
+		for _, key := range keys {
+			link := conn.HGetAll(ctx, key).Val()
+			links = append(links, Link{
+				Link:     link["Link"],
+				ShortURL: link["ShortURL"],
+			})
+		}
+		cursor = next
+		if cursor == 0 {
+			break
+		}
 	}
 	return links
 }

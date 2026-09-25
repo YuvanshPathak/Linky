@@ -42,6 +42,14 @@ func main() {
 			DB:       0,
 		}
 	}
+	// Explicit pool sizing so it doesn't silently shrink to
+	// 10*GOMAXPROCS (go-redis's default) on small/low-CPU instances.
+	opts.PoolSize = 50
+	opts.MinIdleConns = 10
+	opts.PoolTimeout = 5 * time.Second
+	opts.ReadTimeout = 3 * time.Second
+	opts.WriteTimeout = 3 * time.Second
+
 	conn := redis.NewClient(opts)
 	router.Mem = conn
 	res, err := conn.Ping(context.Background()).Result()
@@ -85,7 +93,14 @@ func main() {
 	}
 	fmt.Println("Server started at port", port)
 
-	http.ListenAndServe(":"+port, r)
+	srv := &http.Server{
+		Addr:         ":" + port,
+		Handler:      r,
+		ReadTimeout:  5 * time.Second,
+		WriteTimeout: 10 * time.Second,
+		IdleTimeout:  60 * time.Second,
+	}
+	srv.ListenAndServe()
 }
 
 // Middlewares

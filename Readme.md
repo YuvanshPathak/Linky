@@ -35,8 +35,12 @@ Linky is a link shortener that lets you create custom-named redirects using any 
 └─────────────┘        └──────────────┘        └───────────┘
 ```
 
-- **Backend** (`/backend`) — Go service that stores each short link as a Redis hash, with expiry set via `EXPIRE` when the user provides a date. Exposes `/add-link`, `/{link}` (redirect), `/links/all`, and `/health`.
+- **Backend** (`/backend`) — Go service that stores each short link as a Redis hash, with expiry set via `EXPIRE` when the user provides a date. Exposes `/add-link`, `/{link}` (redirect), `/links/all`, and `/health`. Uses an explicitly sized Redis connection pool and an `http.Server` with read/write/idle timeouts (rather than relying on defaults) so a burst of concurrent traffic doesn't exhaust connections or leak goroutines.
 - **Frontend** (`/frontend`) — React + Vite + MUI single-page app for creating links and copying the result.
+
+### Known limitation
+
+`/links/all` lists every stored link by scanning the Redis keyspace (via `SCAN`, non-blocking) and then fetching each one individually. That scales fine for normal usage, but under load testing with a large number of keys (300k+), the per-key round-trips dominate and the endpoint becomes very slow — `SCAN` fixed the "one slow request blocks all of Redis" problem, but not the "many keys means many sequential round-trips" one. A real fix would batch those lookups (e.g. pipelining) instead of fetching one key at a time.
 
 ## Getting Started
 
@@ -90,6 +94,7 @@ This starts the Vite dev server (default `http://localhost:5173`) pointed at the
 | `REDIS_PASSWORD`   | empty                 | Redis auth password, used with `REDIS_ADDR`.                            |
 | `ALLOWED_ORIGINS`  | `http://localhost:5173` | Comma-separated list of origins allowed to call the API from a browser. |
 | `PORT`             | `4000`                | Port the server listens on (platforms like Render inject this).         |
+| `RATE_LIMIT_MAX`   | `10`                  | Max `/add-link` requests per IP per minute. Raise this for local load testing. |
 
 **Frontend** (`frontend/`)
 
