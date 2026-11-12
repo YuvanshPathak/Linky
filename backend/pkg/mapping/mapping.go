@@ -78,8 +78,21 @@ func GetAllLinks(ctx context.Context, conn *redis.Client) []Link {
 		if err != nil {
 			break
 		}
-		for _, key := range keys {
-			link := conn.HGetAll(ctx, key).Val()
+		// Pipeline the lookups for this SCAN page: one network round-trip
+		// per page instead of one per key.
+		pipe := conn.Pipeline()
+		cmds := make([]*redis.MapStringStringCmd, len(keys))
+		for i, key := range keys {
+			cmds[i] = pipe.HGetAll(ctx, key)
+		}
+		// Exec returns the first command error; check each command below instead.
+		_, _ = pipe.Exec(ctx)
+		for _, cmd := range cmds {
+			link, err := cmd.Result()
+			// Skip keys that failed, or that expired between SCAN and HGETALL.
+			if err != nil || len(link) == 0 {
+				continue
+			}
 			links = append(links, Link{
 				Link:     link["Link"],
 				ShortURL: link["ShortURL"],
